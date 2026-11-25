@@ -12,6 +12,7 @@ import Shifts from './pages/Shifts'
 import Sites from './pages/Sites'
 import Settings from './pages/Settings'
 import Audit from './pages/Audit'
+import Compare from './pages/Compare'
 
 const links = [
   ['/', '总览'],
@@ -26,6 +27,7 @@ const links = [
   ['/回收点', '回收点'],
   ['/设置', '设置'],
   ['/审计', '审计'],
+  ['/过磅对照', '过磅对照'],
 ]
 
 export default function App() {
@@ -58,6 +60,7 @@ export default function App() {
           <Route path="/回收点" element={<Sites />} />
           <Route path="/设置" element={<Settings />} />
           <Route path="/审计" element={<Audit />} />
+          <Route path="/过磅对照" element={<Compare />} />
         </Routes>
       </main>
     </div>

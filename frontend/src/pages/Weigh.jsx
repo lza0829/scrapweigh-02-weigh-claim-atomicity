@@ -10,6 +10,7 @@ export default function Weigh() {
   const [gross, setGross] = useState('1200')
   const [tare, setTare] = useState('800')
   const [deduct, setDeduct] = useState('0')
+  const [receipt, setReceipt] = useState(null)
   const [msg, setMsg] = useState('')
   const [err, setErr] = useState('')
 
@@ -21,16 +22,17 @@ export default function Weigh() {
     const openSites = s.filter((x) => x.状态 === '营业中')
     const sid = siteId || (openSites[0] && String(openSites[0].编号)) || ''
     if (!siteId && sid) setSiteId(sid)
-    const free = sc.filter((x) => String(x.回收点编号) === String(sid || siteId) && x.状态 === '空闲' && x.回收点状态 === '营业中')
-    const stillFree = free.some((x) => String(x.编号) === String(scaleId))
-    if (!stillFree) setScaleId(free[0] ? String(free[0].编号) : '')
+    // 可接新磅 由后端 v_scale_gate 判定，前端不再自行拼「空闲」条件。
+    const usable = sc.filter((x) => String(x.回收点编号) === String(sid || siteId) && x.可接新磅)
+    const stillUsable = usable.some((x) => String(x.编号) === String(scaleId))
+    if (!stillUsable) setScaleId(usable[0] ? String(usable[0].编号) : '')
   }
   useEffect(() => { load().catch((e) => setErr(e.message)) }, [])
 
-  const siteScales = scales.filter((x) => String(x.回收点编号) === String(siteId) && x.状态 === '空闲')
+  const siteScales = scales.filter((x) => String(x.回收点编号) === String(siteId) && x.可接新磅)
 
   const submit = async () => {
-    setErr(''); setMsg('')
+    setErr(''); setMsg(''); setReceipt(null)
     try {
       const row = await api('/过磅', {
         method: 'POST',
@@ -42,10 +44,11 @@ export default function Weigh() {
           扣杂: Number(deduct),
         }),
       })
-      setMsg(`入站成功，磅条 ${row.磅条号}，地磅已占用`)
+      setReceipt(row)
+      setMsg(`入站成功，磅条 ${row.磅条号}`)
       setScaleId('')
       await load()
-    } catch (e) { setErr(e.message) }
+    } catch (e) { setErr(e.message); await load() }
   }
 
   return (
@@ -59,9 +62,9 @@ export default function Weigh() {
             ))}
           </select>
         </label>
-        <label>地磅
+        <label>地磅（仅可接新磅）
           <select value={scaleId} onChange={(e) => setScaleId(e.target.value)}>
-            <option value="">请选择空闲地磅</option>
+            <option value="">请选择可接地磅</option>
             {siteScales.map((s) => (
               <option key={s.编号} value={s.编号}>{s.地磅}</option>
             ))}
@@ -70,17 +73,25 @@ export default function Weigh() {
         <label>毛重<input value={gross} onChange={(e) => setGross(e.target.value)} /></label>
         <label>皮重<input value={tare} onChange={(e) => setTare(e.target.value)} /></label>
         <label>扣杂<input value={deduct} onChange={(e) => setDeduct(e.target.value)} /></label>
-        <button type="button" onClick={submit} disabled={!scaleId}>入站占秤</button>
+        <button type="button" onClick={submit} disabled={!scaleId}>入站钉秤落条</button>
       </div>
       {msg && <div className="msg">{msg}</div>}
       {err && <div className="err">{err}</div>}
+      {receipt && (
+        <div className="receipt">
+          <strong>过磅回执</strong>
+          <div>磅条号 {receipt.磅条号} · 地磅 {receipt.地磅} · {receipt.钉住}（{receipt.钉住时间}）</div>
+          <div>毛重 {receipt.毛重} / 皮重 {receipt.皮重} / 扣杂 {receipt.扣杂} / 净重 {receipt.净重}</div>
+          <div>秤位态 {receipt.地磅状态} · 可接新磅 {receipt.可接新磅 ? '否（已钉住）' : '是'}</div>
+        </div>
+      )}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>磅条号</th><th>回收点</th><th>地磅</th><th>状态</th><th>毛重</th><th>皮重</th><th>扣杂</th><th>净重</th></tr></thead>
+          <thead><tr><th>磅条号</th><th>回收点</th><th>地磅</th><th>钉住</th><th>状态</th><th>毛重</th><th>皮重</th><th>扣杂</th><th>净重</th></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.编号}>
-                <td>{r.磅条号}</td><td>{r.回收点}</td><td>{r.地磅}</td><td>{r.状态}</td>
+                <td>{r.磅条号}</td><td>{r.回收点}</td><td>{r.地磅}</td><td>{r.钉住}</td><td>{r.状态}</td>
                 <td>{r.毛重}</td><td>{r.皮重}</td><td>{r.扣杂}</td><td>{r.净重}</td>
               </tr>
             ))}

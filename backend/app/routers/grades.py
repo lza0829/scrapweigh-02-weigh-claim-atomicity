@@ -1,7 +1,7 @@
 from __future__ import annotations
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from app.db import db, rows_to_list, row_to_dict
+from app.db import db, db_read, rows_to_list, row_to_dict
 from app.services.common import audit
 
 router = APIRouter(tags=["品级"])
@@ -20,7 +20,7 @@ class GradeIn(BaseModel):
 
 @router.get("/品级")
 def list_grades():
-    with db() as conn:
+    with db_read() as conn:
         return rows_to_list(conn.execute(GRADE_SQL + " ORDER BY category, grade_name").fetchall())
 
 

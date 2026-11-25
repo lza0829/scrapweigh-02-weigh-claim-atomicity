@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.db import db, rows_to_list
+from app.db import db, db_read, rows_to_list
 from app.services.common import audit
 
 router = APIRouter(tags=["设置"])
@@ -14,7 +14,7 @@ class SettingIn(BaseModel):
 
 @router.get("/设置")
 def list_settings():
-    with db() as conn:
+    with db_read() as conn:
         return rows_to_list(conn.execute(
             "SELECT key AS 键, value AS 值 FROM settings ORDER BY key"
         ).fetchall())

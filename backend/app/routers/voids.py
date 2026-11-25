@@ -5,9 +5,9 @@ from app.services.common import (
     assert_shift_writable,
     audit,
     now_str,
-    release_scale,
     require_ticket,
     ticket_view,
+    unpin_ticket,
 )
 
 router = APIRouter(tags=["销单"])
@@ -30,6 +30,7 @@ def void_ticket(ticket_id: int):
         )
         if cur.rowcount != 1:
             raise HTTPException(400, "销单未生效")
-        release_scale(conn, ticket["scale_id"])
+        # 解钉与状态变更同笔。
+        unpin_ticket(conn, ticket_id)
         audit(conn, "磅条", ticket_id, "销单", ticket["serial"])
         return ticket_view(conn, ticket_id)

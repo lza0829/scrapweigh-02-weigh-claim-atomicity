@@ -123,5 +123,8 @@ th, td { border: 1px solid #d2c8b8; padding: 0.45rem 0.5rem; text-align: left; }
 th { background: #e4d9c8; }
 td button + button { margin-left: 0.35rem; }
 .msg { margin: 0.5rem 0; color: var(--ok); }
+.subhead { margin: 1.1rem 0 0.5rem; font-size: 1rem; color: var(--moss); border-top: 1px dashed var(--hemp-line); padding-top: 0.7rem; }
+.receipt { margin: 0.6rem 0 0.9rem; padding: 0.7rem 0.9rem; background: #eef4ea; border-left: 4px solid var(--ok); font-size: 0.92rem; line-height: 1.5; }
+.receipt strong { color: var(--moss); }
 .err { margin: 0.5rem 0; color: var(--danger); }
 .muted { color: #6d6458; font-size: 0.86rem; }

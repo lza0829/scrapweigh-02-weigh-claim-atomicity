@@ -1,7 +1,7 @@
 from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-from app.db import db, rows_to_list, row_to_dict
+from app.db import db, db_read, rows_to_list, row_to_dict
 from app.services.common import audit
 
 router = APIRouter(tags=["回收点"])
@@ -28,7 +28,7 @@ def _site(conn, site_id: int):
 
 @router.get("/回收点")
 def list_sites():
-    with db() as conn:
+    with db_read() as conn:
         return rows_to_list(conn.execute(
             "SELECT id AS 编号, name AS 名称, status AS 状态, address AS 地址 FROM sites ORDER BY id"
         ).fetchall())

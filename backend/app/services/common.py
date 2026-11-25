@@ -2,6 +2,12 @@ from __future__ import annotations
 from datetime import datetime
 from fastapi import HTTPException
 
+GATE_SELECT = """
+SELECT scale_id, site_id, code, physical_status, site_status,
+       fault, legacy_busy, held, hold_ticket_id, held_at, status, can_accept
+FROM v_scale_gate
+"""
+
 TICKET_SELECT = """
 SELECT t.id AS 编号,
        t.serial AS 磅条号,
@@ -9,7 +15,10 @@ SELECT t.id AS 编号,
        st.name AS 回收点,
        t.scale_id AS 地磅编号,
        sc.code AS 地磅,
-       sc.status AS 地磅状态,
+       g.status AS 地磅状态,
+       g.can_accept AS 可接新磅,
+       CASE WHEN h.ticket_id IS NULL THEN '未钉住' ELSE '已钉住' END AS 钉住,
+       h.held_at AS 钉住时间,
        t.shift_id AS 班次编号,
        sh.business_day AS 营业日,
        sh.name AS 班次,
@@ -20,8 +29,8 @@ SELECT t.id AS 编号,
        t.deduct_kg AS 扣杂,
        t.net_kg AS 净重,
        t.grade_id AS 品级编号,
-       g.category AS 品类,
-       g.grade_name AS 品级,
+       gd.category AS 品类,
+       gd.grade_name AS 品级,
        t.locked_price AS 锁价,
        t.amount AS 金额,
        t.note AS 备注,
@@ -31,8 +40,10 @@ SELECT t.id AS 编号,
 FROM tickets t
 JOIN sites st ON st.id = t.site_id
 JOIN scales sc ON sc.id = t.scale_id
+JOIN v_scale_gate g ON g.scale_id = t.scale_id
+LEFT JOIN scale_holds h ON h.ticket_id = t.id
 JOIN shifts sh ON sh.id = t.shift_id
-LEFT JOIN grades g ON g.id = t.grade_id
+LEFT JOIN grades gd ON gd.id = t.grade_id
 """
 
 
@@ -97,30 +108,84 @@ def require_ticket(conn, ticket_id: int):
     return row
 
 
-def occupy_scale(conn, scale_id: int) -> None:
+# ---------------------------------------------------------------- 秤位钉住
+# 读路径（列表、回执、总览、对照）与写路径（过磅落条）共用同一份谓词：
+# v_scale_gate.can_accept。任何地方都不得另写一套「空闲即可用」的判断。
+# ---------------------------------------------------------------------------
+
+def scale_gate(conn, scale_id: int) -> dict:
+    row = conn.execute(GATE_SELECT + " WHERE scale_id=?", (scale_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "地磅不存在")
+    return dict(row)
+
+
+def gate_reject_reason(gate: dict) -> str:
+    if gate["fault"]:
+        return "地磅故障，不能过磅"
+    if gate["held"] or gate["legacy_busy"]:
+        return "地磅占用中，已有在途磅条"
+    if gate["site_status"] != "营业中":
+        return f"回收点{gate['site_status']}，不能过磅"
+    return "地磅不可占用"
+
+
+def pin_scale(conn, scale_id: int) -> None:
+    """写侧 CAS：以 v_scale_gate.can_accept 为条件把秤位钉到占用。
+
+    与在读路径上的判断共用同一视图，保证「读得出可接」与「写得进」不会分叉。
+    调用方必须在同一事务内随后写入磅条与钉住见证；否则本 CAS 本身就是半截。
+    """
     cur = conn.execute(
-        "UPDATE scales SET status='占用' WHERE id=? AND status='空闲'",
+        """
+        UPDATE scales SET status='占用'
+        WHERE id=? AND (SELECT can_accept FROM v_scale_gate WHERE scale_id=scales.id)
+        """,
         (scale_id,),
     )
     if cur.rowcount == 1:
         return
-    row = conn.execute("SELECT status FROM scales WHERE id=?", (scale_id,)).fetchone()
-    if not row:
-        raise HTTPException(404, "地磅不存在")
-    if row["status"] == "故障":
-        raise HTTPException(400, "地磅故障，不能过磅")
-    if row["status"] == "占用":
-        raise HTTPException(400, "地磅占用中")
-    raise HTTPException(400, "地磅不可占用")
+    gate = scale_gate(conn, scale_id)
+    # 争用/已钉住 → 409；业务规则（故障、回收点停收）→ 400。
+    code = 409 if (gate["held"] or gate["legacy_busy"]) else 400
+    raise HTTPException(code, gate_reject_reason(gate))
 
 
-def release_scale(conn, scale_id: int) -> None:
-    still = conn.execute(
-        "SELECT COUNT(*) AS c FROM tickets WHERE scale_id=? AND status IN ('待定级','待结价')",
+def hold_scale(conn, scale_id: int, ticket_id: int) -> None:
+    """在途钉住见证；与磅条同一提交写入。"""
+    conn.execute(
+        "INSERT INTO scale_holds(scale_id, ticket_id, held_at) VALUES (?, ?, ?)",
+        (scale_id, ticket_id, now_str()),
+    )
+
+
+def unpin_ticket(conn, ticket_id: int) -> None:
+    """结价/销单时解钉。只在与该磅条状态变更同一事务内调用。
+
+    若同秤仍有其它未结磅条（旧库脏数据），把钉住转交给最早那一条，
+    使「占用 ⇔ 有在途钉住」不因解钉而被破坏。
+    """
+    hold = conn.execute(
+        "SELECT scale_id FROM scale_holds WHERE ticket_id=?", (ticket_id,)
+    ).fetchone()
+    if not hold:
+        return
+    scale_id = hold["scale_id"]
+    conn.execute("DELETE FROM scale_holds WHERE ticket_id=?", (ticket_id,))
+    successor = conn.execute(
+        """
+        SELECT t.id, t.created_at FROM tickets t
+        WHERE t.scale_id=? AND t.status IN ('待定级','待结价')
+        ORDER BY t.id LIMIT 1
+        """,
         (scale_id,),
-    ).fetchone()["c"]
-    if still == 0:
+    ).fetchone()
+    if successor:
         conn.execute(
-            "UPDATE scales SET status='空闲' WHERE id=? AND status='占用'",
-            (scale_id,),
+            "INSERT INTO scale_holds(scale_id, ticket_id, held_at) VALUES (?, ?, ?)",
+            (scale_id, successor["id"], successor["created_at"]),
         )
+        return
+    conn.execute(
+        "UPDATE scales SET status='空闲' WHERE id=? AND status='占用'", (scale_id,)
+    )

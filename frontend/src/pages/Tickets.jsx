@@ -28,7 +28,7 @@ export default function Tickets() {
         <table>
           <thead>
             <tr>
-              <th>磅条号</th><th>回收点</th><th>地磅</th><th>状态</th>
+              <th>磅条号</th><th>回收点</th><th>地磅</th><th>状态</th><th>钉住</th>
               <th>毛重</th><th>皮重</th><th>扣杂</th><th>净重</th>
               <th>品类</th><th>品级</th><th>锁价</th><th>金额</th>
             </tr>
@@ -36,7 +36,7 @@ export default function Tickets() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.编号}>
-                <td>{r.磅条号}</td><td>{r.回收点}</td><td>{r.地磅}</td><td>{r.状态}</td>
+                <td>{r.磅条号}</td><td>{r.回收点}</td><td>{r.地磅}</td><td>{r.状态}</td><td>{r.钉住}</td>
                 <td>{r.毛重}</td><td>{r.皮重}</td><td>{r.扣杂}</td><td>{r.净重}</td>
                 <td>{r.品类 || '-'}</td><td>{r.品级 || '-'}</td><td>{r.锁价 ?? '-'}</td><td>{r.金额 ?? '-'}</td>
               </tr>

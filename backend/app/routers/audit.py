@@ -1,13 +1,13 @@
 from __future__ import annotations
 from fastapi import APIRouter
-from app.db import db, rows_to_list
+from app.db import db_read, rows_to_list
 
 router = APIRouter(tags=["审计"])
 
 
 @router.get("/审计")
 def list_audit():
-    with db() as conn:
+    with db_read() as conn:
         return rows_to_list(conn.execute(
             """
             SELECT id AS 编号, kind AS 类别, ref_id AS 关联, action AS 动作,

@@ -2,7 +2,7 @@ from __future__ import annotations
 from datetime import date
 
 from app.db import db, init_db
-from app.services.common import audit, next_serial, now_str
+from app.services.common import audit, hold_scale, next_serial, now_str
 
 
 def seed_if_empty() -> None:
@@ -55,9 +55,10 @@ def seed_if_empty() -> None:
             "SELECT id FROM scales WHERE site_id=? AND code='乙磅'",
             (south,),
         ).fetchone()["id"]
-        conn.execute("UPDATE scales SET status='占用' WHERE id=?", (scale_id,))
+        # 种子磅条：钉住与磅条同笔落库，不留「占用无凭」。
         gross, tare, deduct = 1500.0, 920.0, 20.0
         net = round(gross - tare - deduct, 3)
+        serial = next_serial(conn)
         conn.execute(
             """
             INSERT INTO tickets(
@@ -65,6 +66,10 @@ def seed_if_empty() -> None:
               gross_kg, tare_kg, deduct_kg, net_kg, note, created_at
             ) VALUES (?, ?, ?, ?, '待定级', ?, ?, ?, ?, ?, ?)
             """,
-            (next_serial(conn), south, scale_id, shift_id, gross, tare, deduct, net, "种子待定级", now),
+            (serial, south, scale_id, shift_id, gross, tare, deduct, net, "种子待定级", now),
         )
+        ticket_id = conn.execute("SELECT id FROM tickets WHERE serial=?", (serial,)).fetchone()["id"]
+        conn.execute("UPDATE scales SET status='占用' WHERE id=?", (scale_id,))
+        hold_scale(conn, scale_id, ticket_id)
+        audit(conn, "磅条", ticket_id, "过磅入站", serial)
         audit(conn, "系统", None, "种子初始化", "旧物磅条")
